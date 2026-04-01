@@ -1,0 +1,105 @@
+name: retail-inventory-expiry
+version: "1.0.0"
+description: >
+  Simulates a store manager making real-time inventory decisions for perishable
+  products. The agent decides when to discount, reorder, or remove items nearing
+  expiry, with the goal of maximising sales revenue while minimising food waste
+  and stockouts. Models a genuine daily operational challenge faced by retailers,
+  supermarkets, and pharmacies worldwide.
+
+author: "OpenEnv Hackathon Submission"
+license: MIT
+tags:
+  - openenv
+  - retail
+  - inventory
+  - perishable
+  - real-world
+  - rl
+
+tasks:
+  - id: easy_single_product
+    name: "Single Product Management"
+    difficulty: easy
+    description: >
+      Manage 1 perishable product over a 7-day horizon.
+      Minimise waste by discounting near-expiry items.
+    episode_length: 7
+    score_range: [0.0, 1.0]
+
+  - id: medium_multi_product
+    name: "Multi-Product Balance"
+    difficulty: medium
+    description: >
+      Manage 5 perishable products over 30 days.
+      Balance revenue, waste reduction, and stockout avoidance.
+    episode_length: 30
+    score_range: [0.0, 1.0]
+
+  - id: hard_full_store
+    name: "Full Store Optimisation"
+    difficulty: hard
+    description: >
+      Manage 20 perishable products across multiple categories over 90 days.
+      Maximise profit margin, minimise food waste (sustainability bonus),
+      avoid stockouts, and manage a reorder budget.
+    episode_length: 90
+    score_range: [0.0, 1.0]
+
+observation_space:
+  type: object
+  fields:
+    day:                  {type: integer, description: "Current simulation day"}
+    total_days:           {type: integer, description: "Episode length"}
+    products:             {type: array,   description: "List of product snapshots"}
+    daily_revenue:        {type: float,   description: "Revenue earned today"}
+    daily_waste_cost:     {type: float,   description: "Waste cost today"}
+    cumulative_revenue:   {type: float,   description: "Total revenue so far"}
+    cumulative_waste_cost:{type: float,   description: "Total waste cost so far"}
+    stockout_events:      {type: integer, description: "Stockouts today"}
+    budget_remaining:     {type: float,   description: "Remaining reorder budget"}
+
+action_space:
+  type: object
+  fields:
+    action_type:
+      type: string
+      enum: [discount, reorder, remove, do_nothing]
+      description: "Type of action to take"
+    product_id:
+      type: string
+      description: "Target product ID (e.g. P01)"
+    discount_pct:
+      type: float
+      minimum: 0.0
+      maximum: 80.0
+      description: "Discount percentage to apply (used with action_type=discount)"
+    reorder_qty:
+      type: integer
+      minimum: 0
+      description: "Units to reorder (used with action_type=reorder)"
+
+reward_space:
+  type: object
+  fields:
+    sales_revenue:    {type: float, description: "+ve reward for units sold"}
+    waste_penalty:    {type: float, description: "-ve penalty for waste/expired stock"}
+    stockout_penalty: {type: float, description: "-ve penalty per stockout event"}
+    reorder_cost:     {type: float, description: "-ve cost of reorder operations"}
+    total:            {type: float, description: "Sum of all reward components"}
+
+endpoints:
+  reset: POST /reset
+  step:  POST /step
+  state: GET  /state
+
+docker:
+  base_image: python:3.11-slim
+  port: 7860
+
+huggingface:
+  space_sdk: docker
+  tags:
+    - openenv
+    - retail
+    - inventory-management
