@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -61,7 +61,87 @@ class StepRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "retail-inventory-openenv"}
+    return {"status": "healthy", "service": "retail-inventory-openenv"}
+
+
+@app.get("/metadata")
+def metadata():
+    return {
+        "name"       : "retail-inventory-expiry",
+        "description": (
+            "Simulates a store manager making real-time inventory decisions "
+            "for perishable products. The agent decides when to discount, "
+            "reorder, or remove items nearing expiry."
+        ),
+        "version"    : "1.0.0",
+    }
+
+
+@app.get("/schema")
+def schema():
+    return {
+        "action": {
+            "type": "object",
+            "fields": {
+                "action_type" : {"type": "string", "enum": ["discount","reorder","remove","do_nothing"]},
+                "product_id"  : {"type": "string"},
+                "discount_pct": {"type": "float", "minimum": 0.0, "maximum": 80.0},
+                "reorder_qty" : {"type": "integer", "minimum": 0},
+            }
+        },
+        "observation": {
+            "type": "object",
+            "fields": {
+                "day"                  : {"type": "integer"},
+                "total_days"           : {"type": "integer"},
+                "products"             : {"type": "array"},
+                "daily_revenue"        : {"type": "float"},
+                "daily_waste_cost"     : {"type": "float"},
+                "cumulative_revenue"   : {"type": "float"},
+                "cumulative_waste_cost": {"type": "float"},
+                "stockout_events"      : {"type": "integer"},
+                "budget_remaining"     : {"type": "float"},
+            }
+        },
+        "state": {
+            "type": "object",
+            "fields": {
+                "task"           : {"type": "string"},
+                "day"            : {"type": "integer"},
+                "done"           : {"type": "boolean"},
+                "budget"         : {"type": "float"},
+                "episode_score"  : {"type": "float"},
+            }
+        },
+    }
+
+
+@app.post("/mcp")
+async def mcp(request: Request):
+    body = await request.json()
+    method = body.get("method", "")
+    req_id = body.get("id", 1)
+
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities"   : {"tools": {}},
+                "serverInfo"     : {"name": "retail-inventory-openenv", "version": "1.0.0"},
+            }
+        }
+    elif method == "tools/list":
+        return {
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"tools": [
+                {"name": "reset", "description": "Reset the environment", "inputSchema": {"type": "object"}},
+                {"name": "step",  "description": "Take a step",          "inputSchema": {"type": "object"}},
+                {"name": "state", "description": "Get current state",    "inputSchema": {"type": "object"}},
+            ]}
+        }
+    else:
+        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
 
 
 @app.post("/reset")
