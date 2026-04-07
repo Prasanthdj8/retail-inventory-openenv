@@ -249,5 +249,5 @@ class RetailInventoryEnv:
 
     def current_score(self) -> float:
         if not self._grader or not self._history.records:
-            return 0.0
+            return 0.001
         return self._grader.score(self._history)

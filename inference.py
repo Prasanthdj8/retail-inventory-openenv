@@ -1,5 +1,5 @@
 """
-inference.py — Baseline inference script for Retail Inventory & Expiry Management OpenEnv
+inference.py - Baseline inference script for Retail Inventory & Expiry Management OpenEnv
 """
 
 from __future__ import annotations
@@ -23,6 +23,11 @@ TEMPERATURE     = 0.0
 MAX_TOKENS      = 300
 FALLBACK_ACTION = {"action_type": "do_nothing"}
 TASKS           = ["easy", "medium", "hard"]
+
+
+def clamp(score: float) -> float:
+    """Always return strictly between 0 and 1."""
+    return round(max(0.001, min(0.999, float(score))), 4)
 
 
 class RetailEnvClient:
@@ -135,9 +140,8 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
     obs           = env.reset()
     done          = False
     step          = 0
-    episode_score = 0.001
+    episode_score = 0.001  # strictly > 0 default
 
-    # Required structured output — START
     print(f"[START] task={task}", flush=True)
 
     while not done:
@@ -146,18 +150,16 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
         result = env.step(action)
         obs    = result["observation"]
         done   = result["done"]
-        info   = result["info"]
+        info   = result["reward"]
         reward = result["reward"]
 
-        # Required structured output — STEP
-        print(f"[STEP] step={step} reward={reward['total']:.4f}", flush=True)
+        print(f"[STEP] step={step} reward={clamp(reward['total'])}", flush=True)
 
         if done:
-            episode_score = max(0.001, min(0.999, float(info.get("episode_score", 0.001))))
+            raw_score     = result["info"].get("episode_score", 0.001)
+            episode_score = clamp(raw_score)
 
-    # Required structured output — END
-    print(f"[END] task={task} score={episode_score:.4f} steps={step}", flush=True)
-
+    print(f"[END] task={task} score={episode_score} steps={step}", flush=True)
     return episode_score
 
 
@@ -187,8 +189,8 @@ def main():
         except Exception as exc:
             print(f"  ERROR on task '{task}': {exc}", flush=True)
             print(f"[START] task={task}", flush=True)
-            print(f"[STEP] step=1 reward=0.0", flush=True)
-            print(f"[END] task={task} score=0.0 steps=1", flush=True)
+            print(f"[STEP] step=1 reward=0.001", flush=True)
+            print(f"[END] task={task} score=0.001 steps=1", flush=True)
             scores[task] = 0.001
         finally:
             env.close()
@@ -200,8 +202,7 @@ def main():
     print("  BASELINE SCORES", flush=True)
     print("=" * 60, flush=True)
     for task, score in scores.items():
-        bar = "X" * int(score * 20)
-        print(f"  {task:<8} : {score:.4f}  |{bar:<20}|", flush=True)
+        print(f"  {task:<8} : {score:.4f}", flush=True)
     print(f"  {'average':<8} : {avg:.4f}", flush=True)
     print(f"  Elapsed  : {elapsed:.1f}s", flush=True)
     print("=" * 60, flush=True)
