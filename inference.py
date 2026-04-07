@@ -153,7 +153,7 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
         print(f"[STEP] step={step} reward={reward['total']:.4f}", flush=True)
 
         if done:
-            episode_score = info.get("episode_score", 0.0)
+            episode_score = max(0.001, min(0.999, float(info.get("episode_score", 0.001))))
 
     # Required structured output — END
     print(f"[END] task={task} score={episode_score:.4f} steps={step}", flush=True)
