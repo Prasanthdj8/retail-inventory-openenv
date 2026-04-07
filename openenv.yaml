@@ -25,7 +25,7 @@ tasks:
       Manage 1 perishable product over a 7-day horizon.
       Minimise waste by discounting near-expiry items.
     episode_length: 7
-    score_range: [0.0, 1.0]
+    score_range: [0.001, 0.999]
 
   - id: medium_multi_product
     name: "Multi-Product Balance"
@@ -34,7 +34,7 @@ tasks:
       Manage 5 perishable products over 30 days.
       Balance revenue, waste reduction, and stockout avoidance.
     episode_length: 30
-    score_range: [0.0, 1.0]
+    score_range: [0.001, 0.999]
 
   - id: hard_full_store
     name: "Full Store Optimisation"
@@ -44,7 +44,7 @@ tasks:
       Maximise profit margin, minimise food waste (sustainability bonus),
       avoid stockouts, and manage a reorder budget.
     episode_length: 90
-    score_range: [0.0, 1.0]
+    score_range: [0.001, 0.999]
 
 observation_space:
   type: object
