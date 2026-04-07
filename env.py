@@ -187,17 +187,17 @@ class RetailInventoryEnv:
         self._done = self._day > self.config["episode_length"]
 
         obs  = self._build_observation(daily_rev, daily_waste, stockouts)
-        info : Dict[str, Any] = {
-            "day"        : self._day - 1,
-            "done"       : self._done,
-            "budget"     : self._budget,
-            "cum_revenue": self._cum_revenue,
-            "cum_waste"  : self._cum_waste,
-        }
+        running_score = self._grader.score(self._history) if self._grader else 0.001
 
-        if self._done and self._grader:
-            info["episode_score"] = self._grader.score(self._history)
-            info["task_id"]       = self._grader.task_id
+        info : Dict[str, Any] = {
+            "day"          : self._day - 1,
+            "done"         : self._done,
+            "budget"       : self._budget,
+            "cum_revenue"  : self._cum_revenue,
+            "cum_waste"    : self._cum_waste,
+            "episode_score": running_score,
+            "task_id"      : self._grader.task_id if self._grader else self.task,
+        }
 
         return obs, reward, self._done, info
 
@@ -214,6 +214,8 @@ class RetailInventoryEnv:
             "products"       : [p.model_dump() for p in self._products],
             "episode_length" : self.config["episode_length"],
             "history_length" : len(self._history.records),
+            "episode_score"  : self.current_score(),
+            "task_id"        : self._grader.task_id if self._grader else self.task,
         }
 
     def _build_observation(self, daily_revenue, daily_waste, stockouts) -> Observation:
