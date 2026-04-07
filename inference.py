@@ -189,7 +189,7 @@ def main():
             print(f"[START] task={task}", flush=True)
             print(f"[STEP] step=1 reward=0.0", flush=True)
             print(f"[END] task={task} score=0.0 steps=1", flush=True)
-            scores[task] = 0.0
+            scores[task] = 0.001
         finally:
             env.close()
 

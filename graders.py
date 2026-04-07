@@ -108,7 +108,7 @@ class EasyGrader(BaseGrader):
         waste_ratio   = waste / (waste + rev + 1e-9)
 
         raw = revenue_ratio * (1.0 - waste_ratio)
-        return round(float(max(0.0, min(1.0, raw))), 4)
+        return round(float(max(0.001, min(0.999, raw))), 4)
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ class MediumGrader(BaseGrader):
             + 0.35 * waste_score
             + 0.25 * stockout_score
         )
-        return round(float(max(0.0, min(1.0, raw))), 4)
+        return round(float(max(0.001, min(0.999, raw))), 4)
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ class HardGrader(BaseGrader):
             + 0.20 * stockout_score
             + 0.15 * sustainability
         )
-        return round(float(max(0.0, min(1.0, raw))), 4)
+        return round(float(max(0.001, min(0.999, raw))), 4)
 
 
 # ---------------------------------------------------------------------------
