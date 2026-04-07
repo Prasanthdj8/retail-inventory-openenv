@@ -150,7 +150,7 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
         result = env.step(action)
         obs    = result["observation"]
         done   = result["done"]
-        info   = result["reward"]
+        info   = result["info"]
         reward = result["reward"]
 
         print(f"[STEP] step={step} reward={clamp(reward['total'])}", flush=True)
@@ -196,7 +196,7 @@ def main():
             env.close()
 
     elapsed = time.time() - start_time
-    avg     = sum(scores.values()) / max(len(scores), 1)
+    avg     = clamp(sum(scores.values()) / max(len(scores), 1))
 
     print("\n" + "=" * 60, flush=True)
     print("  BASELINE SCORES", flush=True)
