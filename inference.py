@@ -10,8 +10,7 @@ import sys
 import textwrap
 import time
 import urllib.request
-import urllib.error
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from openai import OpenAI
 
@@ -43,20 +42,11 @@ class RetailEnvClient:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
-    def _get(self, endpoint: str, params: Dict = {}) -> Dict:
-        qs  = "&".join(f"{k}={v}" for k, v in params.items())
-        url = f"{self.host}{endpoint}?{qs}" if qs else f"{self.host}{endpoint}"
-        with urllib.request.urlopen(url, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-
     def reset(self) -> Dict:
         return self._post("/reset", {"task": self.task, "seed": self.seed})
 
     def step(self, action: Dict) -> Dict:
         return self._post("/step", {"task": self.task, **action})
-
-    def state(self) -> Dict:
-        return self._get("/state", {"task": self.task})
 
     def close(self):
         pass
@@ -122,7 +112,7 @@ def call_llm(client, obs: Dict, step: int) -> Dict:
         )
         text = (completion.choices[0].message.content or "").strip()
     except Exception as exc:
-        print(f"    [LLM error] {exc} - using fallback")
+        print(f"    [LLM error] {exc} - using fallback", flush=True)
         return FALLBACK_ACTION
 
     if text.startswith("```"):
@@ -137,7 +127,7 @@ def call_llm(client, obs: Dict, step: int) -> Dict:
             raise ValueError("Missing action_type")
         return action
     except Exception as exc:
-        print(f"    [Parse error] {exc} - using fallback")
+        print(f"    [Parse error] {exc} - using fallback", flush=True)
         return FALLBACK_ACTION
 
 
@@ -147,8 +137,8 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
     step          = 0
     episode_score = 0.0
 
-    print(f"  Started | {len(obs['products'])} products | "
-          f"{obs['total_days']} days | Budget: {obs['budget_remaining']:.2f}")
+    # Required structured output — START
+    print(f"[START] task={task}", flush=True)
 
     while not done:
         step  += 1
@@ -157,44 +147,48 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
         obs    = result["observation"]
         done   = result["done"]
         info   = result["info"]
+        reward = result["reward"]
 
-        if step % 5 == 0:
-            print(f"    Day {info['day']:>3} | "
-                  f"rev: {obs['cumulative_revenue']:.2f} | "
-                  f"waste: {obs['cumulative_waste_cost']:.2f}")
+        # Required structured output — STEP
+        print(f"[STEP] step={step} reward={reward['total']:.4f}", flush=True)
 
         if done:
             episode_score = info.get("episode_score", 0.0)
 
-    print(f"  Done | Score: {episode_score:.4f}")
+    # Required structured output — END
+    print(f"[END] task={task} score={episode_score:.4f} steps={step}", flush=True)
+
     return episode_score
 
 
 def main():
-    print("=" * 60)
-    print("  Retail Inventory & Expiry Management - Baseline Inference")
-    print("=" * 60)
-    print(f"  Model    : {MODEL_NAME}")
-    print(f"  API Base : {API_BASE_URL}")
-    print(f"  Env Host : {ENV_HOST}")
-    print("=" * 60)
+    print("=" * 60, flush=True)
+    print("  Retail Inventory & Expiry Management - Baseline Inference", flush=True)
+    print("=" * 60, flush=True)
+    print(f"  Model    : {MODEL_NAME}", flush=True)
+    print(f"  API Base : {API_BASE_URL}", flush=True)
+    print(f"  Env Host : {ENV_HOST}", flush=True)
+    print("=" * 60, flush=True)
 
     try:
         client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     except Exception as exc:
-        print(f"WARNING: OpenAI client init failed: {exc}")
+        print(f"WARNING: OpenAI client init failed: {exc}", flush=True)
         client = None
 
     scores     = {}
     start_time = time.time()
 
     for task in TASKS:
-        print(f"\n[Task: {task.upper()}]")
+        print(f"\n[Task: {task.upper()}]", flush=True)
         env = RetailEnvClient(host=ENV_HOST, task=task, seed=42)
         try:
             scores[task] = run_episode(client, env, task)
         except Exception as exc:
-            print(f"  ERROR on task '{task}': {exc}")
+            print(f"  ERROR on task '{task}': {exc}", flush=True)
+            print(f"[START] task={task}", flush=True)
+            print(f"[STEP] step=1 reward=0.0", flush=True)
+            print(f"[END] task={task} score=0.0 steps=1", flush=True)
             scores[task] = 0.0
         finally:
             env.close()
@@ -202,18 +196,18 @@ def main():
     elapsed = time.time() - start_time
     avg     = sum(scores.values()) / max(len(scores), 1)
 
-    print("\n" + "=" * 60)
-    print("  BASELINE SCORES")
-    print("=" * 60)
+    print("\n" + "=" * 60, flush=True)
+    print("  BASELINE SCORES", flush=True)
+    print("=" * 60, flush=True)
     for task, score in scores.items():
         bar = "X" * int(score * 20)
-        print(f"  {task:<8} : {score:.4f}  |{bar:<20}|")
-    print(f"  {'average':<8} : {avg:.4f}")
-    print(f"  Elapsed  : {elapsed:.1f}s")
-    print("=" * 60)
+        print(f"  {task:<8} : {score:.4f}  |{bar:<20}|", flush=True)
+    print(f"  {'average':<8} : {avg:.4f}", flush=True)
+    print(f"  Elapsed  : {elapsed:.1f}s", flush=True)
+    print("=" * 60, flush=True)
 
     result = {"scores": scores, "average": avg, "elapsed_seconds": elapsed}
-    print(f"\nJSON_SCORES: {json.dumps(result)}")
+    print(f"\nJSON_SCORES: {json.dumps(result)}", flush=True)
 
 
 if __name__ == "__main__":
