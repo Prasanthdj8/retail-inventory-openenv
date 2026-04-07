@@ -99,9 +99,11 @@ def step(req: StepRequest):
         obs, reward, done, info = env.step(action)
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    r = reward.model_dump()
+    r["total"] = round(float(max(0.001, min(0.999, r["total"]))), 4)
     return {
         "observation": obs.model_dump(),
-        "reward"     : reward.model_dump(),
+        "reward"     : r,
         "done"       : done,
         "info"       : info,
     }
