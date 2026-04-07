@@ -135,7 +135,7 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
     obs           = env.reset()
     done          = False
     step          = 0
-    episode_score = 0.0
+    episode_score = 0.001
 
     # Required structured output — START
     print(f"[START] task={task}", flush=True)
