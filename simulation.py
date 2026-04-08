@@ -62,10 +62,11 @@ def build_product_catalogue(
     for idx, (name, category, price, cost, demand, shelf_life) in enumerate(chosen):
         pid = f"P{idx+1:02d}"
         init_stock = int(demand * rng.uniform(2.0, 5.0))
-        expiry_day = rng.randint(
-            max(2, shelf_life // 2),
-            min(shelf_life, episode_length - 1),
-        )
+        lo = max(2, shelf_life // 2)
+        hi = min(shelf_life, episode_length - 1)
+        if lo >= hi:
+            lo = max(1, hi - 1)
+        expiry_day = rng.randint(lo, hi)
         noisy_demand = demand * rng.uniform(0.8, 1.2)
         products.append(Product(
             product_id  = pid,
