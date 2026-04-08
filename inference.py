@@ -166,9 +166,9 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
         if done:
             raw_score     = info.get("episode_score", 0.001)
             episode_score = clamp(raw_score)
-
-    success      = episode_score >= 0.1
-    rewards_str  = ",".join(f"{r:.3f}" for r in rewards)
+    final_rewards = [episode_score] * len(rewards)
+    success       = episode_score >= 0.1
+    rewards_str   = ",".join(f"{r:.3f}" for r in final_rewards)
     print(
         f"[END] success={str(success).lower()} steps={step} "
         f"score={episode_score:.3f} rewards={rewards_str}",
