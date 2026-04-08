@@ -159,7 +159,7 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
 
         print(
             f"[STEP] step={step} action={action.get('action_type','do_nothing')} "
-            f"reward={step_reward:.2f} done={str(done).lower()} error=null",
+            f"reward={step_reward:.3f} done={str(done).lower()} error=null",
             flush=True,
         )
 
@@ -168,7 +168,7 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
             episode_score = clamp(raw_score)
 
     success      = episode_score >= 0.1
-    rewards_str  = ",".join(f"{r:.2f}" for r in rewards)
+    rewards_str  = ",".join(f"{r:.3f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={step} "
         f"score={episode_score:.3f} rewards={rewards_str}",
@@ -203,8 +203,8 @@ def main():
         except Exception as exc:
             print(f"  ERROR on task '{task}': {exc}", flush=True)
             print(f"[START] task={task} env=retail-inventory model={MODEL_NAME}", flush=True)
-            print(f"[STEP] step=1 action=do_nothing reward=0.00 done=true error=null", flush=True)
-            print(f"[END] success=false steps=1 score=0.001 rewards=0.00", flush=True)
+            print(f"[STEP] step=1 action=do_nothing reward=0.001 done=true error=null", flush=True)
+            print(f"[END] success=false steps=1 score=0.001 rewards=0.001", flush=True)
             scores[task] = 0.001
         finally:
             env.close()
