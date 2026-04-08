@@ -143,7 +143,7 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
     episode_score = 0.001
     rewards       = []
 
-    print(f"[START] task={task} env=retail-inventory model={MODEL_NAME}", flush=True)
+    print(f"[START] task={task} env=retail-inventory-expiry model={MODEL_NAME}", flush=True)
 
     while not done:
         step  += 1
@@ -202,7 +202,7 @@ def main():
             scores[task] = run_episode(client, env, task)
         except Exception as exc:
             print(f"  ERROR on task '{task}': {exc}", flush=True)
-            print(f"[START] task={task} env=retail-inventory model={MODEL_NAME}", flush=True)
+            print(f"[START] task={task} env=retail-inventory-expiry model={MODEL_NAME}", flush=True)
             print(f"[STEP] step=1 action=do_nothing reward=0.001 done=true error=null", flush=True)
             print(f"[END] success=false steps=1 score=0.001 rewards=0.001", flush=True)
             scores[task] = 0.001
