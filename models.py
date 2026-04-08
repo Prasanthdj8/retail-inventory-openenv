@@ -90,6 +90,7 @@ class Observation(BaseModel):
     cumulative_waste_cost: float = 0.0
     stockout_events      : int   = 0
     budget_remaining     : float = 0.0
+    reward               : float = 0.001  # clamped step reward for OpenEnv standard
 
 
 # ---------------------------------------------------------------------------

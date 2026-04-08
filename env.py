@@ -186,7 +186,7 @@ class RetailInventoryEnv:
         self._day += 1
         self._done = self._day > self.config["episode_length"]
 
-        obs  = self._build_observation(daily_rev, daily_waste, stockouts)
+        obs  = self._build_observation(daily_rev, daily_waste, stockouts, reward.total)
         running_score = self._grader.score(self._history) if self._grader else 0.001
 
         info : Dict[str, Any] = {
@@ -218,7 +218,7 @@ class RetailInventoryEnv:
             "task_id"        : self._grader.task_id if self._grader else self.task,
         }
 
-    def _build_observation(self, daily_revenue, daily_waste, stockouts) -> Observation:
+    def _build_observation(self, daily_revenue, daily_waste, stockouts, reward_total=0.001) -> Observation:
         product_states = [
             p.to_product_state(
                 self._day,
@@ -226,6 +226,7 @@ class RetailInventoryEnv:
             )
             for p in self._products
         ]
+        clamped_reward = round(float(max(0.001, min(0.999, reward_total))), 4)
         return Observation(
             day                   = self._day,
             total_days            = self.config["episode_length"],
@@ -236,6 +237,7 @@ class RetailInventoryEnv:
             cumulative_waste_cost = round(self._cum_waste, 4),
             stockout_events       = stockouts,
             budget_remaining      = round(self._budget, 4),
+            reward                = clamped_reward,
         )
 
     def _theoretical_max_revenue(self) -> float:
