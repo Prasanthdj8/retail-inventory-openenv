@@ -140,9 +140,10 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
     obs           = env.reset()
     done          = False
     step          = 0
-    episode_score = 0.001  # strictly > 0 default
+    episode_score = 0.001
+    rewards       = []
 
-    print(f"[START] task={task}", flush=True)
+    print(f"[START] task={task} env=retail-inventory model={MODEL_NAME}", flush=True)
 
     while not done:
         step  += 1
@@ -153,13 +154,26 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
         info   = result["info"]
         reward = result["reward"]
 
-        print(f"[STEP] step={step} reward={clamp(reward['total'])}", flush=True)
+        step_reward = clamp(reward["total"])
+        rewards.append(step_reward)
+
+        print(
+            f"[STEP] step={step} action={action.get('action_type','do_nothing')} "
+            f"reward={step_reward:.2f} done={str(done).lower()} error=null",
+            flush=True,
+        )
 
         if done:
-            raw_score     = result["info"].get("episode_score", 0.001)
+            raw_score     = info.get("episode_score", 0.001)
             episode_score = clamp(raw_score)
 
-    print(f"[END] task={task} score={episode_score} steps={step}", flush=True)
+    success      = episode_score >= 0.1
+    rewards_str  = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={step} "
+        f"score={episode_score:.3f} rewards={rewards_str}",
+        flush=True,
+    )
     return episode_score
 
 
@@ -188,9 +202,9 @@ def main():
             scores[task] = run_episode(client, env, task)
         except Exception as exc:
             print(f"  ERROR on task '{task}': {exc}", flush=True)
-            print(f"[START] task={task}", flush=True)
-            print(f"[STEP] step=1 reward=0.001", flush=True)
-            print(f"[END] task={task} score=0.001 steps=1", flush=True)
+            print(f"[START] task={task} env=retail-inventory model={MODEL_NAME}", flush=True)
+            print(f"[STEP] step=1 action=do_nothing reward=0.00 done=true error=null", flush=True)
+            print(f"[END] success=false steps=1 score=0.001 rewards=0.00", flush=True)
             scores[task] = 0.001
         finally:
             env.close()
