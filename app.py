@@ -22,7 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import math
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -226,3 +226,74 @@ def tasks():
         task_id: {**cfg, "grader": graders[task_id].info()}
         for task_id, cfg in TASK_CONFIGS.items()
     }
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+    task = "easy"
+    try:
+        while True:
+            data = await ws.receive_json()
+            msg_type = data.get("type")
+            payload  = data.get("data", {})
+
+            if msg_type == "reset":
+                t = payload.get("task", payload.get("task_id", "easy"))
+                task_map = {"easy_single_product":"easy","medium_multi_product":"medium","hard_full_store":"hard"}
+                task = task_map.get(t, t)
+                if task not in ("easy","medium","hard"):
+                    task = "easy"
+                seed = payload.get("seed", DEFAULT_SEED)
+                env  = RetailInventoryEnv(task=task, seed=seed)
+                _envs[task] = env
+                obs = env.reset()
+                await ws.send_json({"type": "reset", "data": {
+                    "observation": obs.model_dump(),
+                    "reward"     : {"total": 0.5},
+                    "done"       : False,
+                    "info"       : {"episode_score": 0.5, "task_id": task},
+                }})
+
+            elif msg_type == "step":
+                env = _envs.get(task)
+                if env is None:
+                    await ws.send_json({"type": "error", "data": {"message": "No active episode", "code": "NO_EPISODE"}})
+                    continue
+                action_type = payload.get("action_type", payload.get("type", "do_nothing"))
+                task_map = {"easy_single_product":"easy","medium_multi_product":"medium","hard_full_store":"hard"}
+                t2 = payload.get("task", task)
+                task = task_map.get(t2, t2) if t2 in task_map else task
+                try:
+                    action_type_enum = ActionType(action_type)
+                except ValueError:
+                    action_type_enum = ActionType.DO_NOTHING
+                action = Action(
+                    action_type  = action_type_enum,
+                    product_id   = payload.get("product_id"),
+                    discount_pct = float(payload.get("discount_pct", 0.0)),
+                    reorder_qty  = int(payload.get("reorder_qty", 0)),
+                )
+                obs, reward, done, info = env.step(action)
+                r = reward.model_dump()
+                r["total"] = _safe_score(r["total"])
+                info["episode_score"] = _safe_score(info.get("episode_score", 0.5))
+                await ws.send_json({"type": "step", "data": {
+                    "observation": obs.model_dump(),
+                    "reward"     : r,
+                    "done"       : done,
+                    "info"       : info,
+                }})
+
+            elif msg_type == "state":
+                env = _envs.get(task)
+                if env:
+                    await ws.send_json({"type": "state", "data": env.state()})
+                else:
+                    await ws.send_json({"type": "state", "data": {}})
+
+            elif msg_type == "close":
+                break
+
+    except WebSocketDisconnect:
+        pass
