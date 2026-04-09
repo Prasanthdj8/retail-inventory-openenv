@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import math
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -41,6 +42,12 @@ app.add_middleware(
     allow_methods  = ["*"],
     allow_headers  = ["*"],
 )
+
+
+def _safe_score(x):
+    if x is None or (isinstance(x, float) and (math.isnan(x) or math.isinf(x))):
+        return 0.5
+    return float(max(1e-6, min(1 - 1e-6, x)))
 
 _envs: Dict[str, RetailInventoryEnv] = {}
 DEFAULT_SEED = int(os.getenv("ENV_SEED", "42"))
@@ -155,7 +162,9 @@ def reset(req: ResetRequest = ResetRequest()):
     env  = RetailInventoryEnv(task=task, seed=seed)
     _envs[task] = env
     obs = env.reset()
-    return obs.model_dump()
+    result = obs.model_dump()
+    result["episode_score"] = 0.5
+    return result
 
 
 @app.post("/step")
@@ -184,7 +193,8 @@ def step(req: StepRequest):
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     r = reward.model_dump()
-    r["total"] = round(float(max(0.001, min(0.999, r["total"]))), 4)
+    r["total"] = _safe_score(r["total"])
+    info["episode_score"] = _safe_score(info.get("episode_score", 0.5))
     return {
         "observation": obs.model_dump(),
         "reward"     : r,

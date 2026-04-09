@@ -154,12 +154,16 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
         info   = result["info"]
         reward = result["reward"]
 
-        step_reward = max(1e-6, min(reward["total"], 1 - 1e-6)) if reward["total"] > 0 else 1e-6
+        import math as _math
+        raw_r = reward["total"]
+        if raw_r is None or _math.isnan(raw_r) or _math.isinf(raw_r):
+            raw_r = 0.5
+        step_reward = float(max(0.01, min(0.99, raw_r))) if raw_r > 0 else 0.01
         rewards.append(step_reward)
 
         print(
             f"[STEP] step={step} action={action.get('action_type','do_nothing')} "
-            f"reward={step_reward:.2f} done={str(done).lower()} error=null",
+            f"reward={step_reward:.3f} done={str(done).lower()} error=null",
             flush=True,
         )
 
@@ -171,7 +175,7 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
     raw_score     = sum(rewards) / len(rewards) if rewards else 0.0
     episode_score = max(1e-6, min(raw_score, 1 - 1e-6))
     success       = episode_score >= 0.1
-    rewards_str   = ",".join(f"{r:.2f}" for r in rewards)
+    rewards_str   = ",".join(f"{r:.3f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={step} "
         f"score={episode_score:.3f} rewards={rewards_str}",
