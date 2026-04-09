@@ -8,6 +8,7 @@ Implements the full OpenEnv interface:
 """
 
 from __future__ import annotations
+import math
 
 import copy
 import random
@@ -187,7 +188,10 @@ class RetailInventoryEnv:
         self._done = self._day > self.config["episode_length"]
 
         obs  = self._build_observation(daily_rev, daily_waste, stockouts, reward.total)
-        running_score = self._grader.score(self._history) if self._grader else 0.001
+        raw_running = self._grader.score(self._history) if self._grader else 0.5
+        if raw_running is None or math.isnan(raw_running) or math.isinf(raw_running):
+            raw_running = 0.5
+        running_score = float(max(1e-6, min(1 - 1e-6, raw_running)))
 
         info : Dict[str, Any] = {
             "day"          : self._day - 1,
@@ -253,5 +257,8 @@ class RetailInventoryEnv:
 
     def current_score(self) -> float:
         if not self._grader or not self._history.records:
-            return 0.001
-        return self._grader.score(self._history)
+            return 0.5
+        score = self._grader.score(self._history)
+        if score is None or math.isnan(score) or math.isinf(score):
+            return 0.5
+        return float(max(1e-6, min(1 - 1e-6, score)))

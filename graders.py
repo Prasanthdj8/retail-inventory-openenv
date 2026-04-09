@@ -11,10 +11,18 @@ task_hard   : 20 products, 90-day horizon — maximise profit + sustainability.
 """
 
 from __future__ import annotations
+import math
 
 from dataclasses import dataclass, field
 from typing import Dict, List
 
+
+
+def safe_score(raw: float) -> float:
+    """Return a score strictly in (0, 1), safe against NaN/inf."""
+    if raw is None or math.isnan(raw) or math.isinf(raw):
+        return 0.5
+    return float(max(1e-6, min(1 - 1e-6, raw)))
 
 # ---------------------------------------------------------------------------
 # Episode history record
@@ -108,7 +116,7 @@ class EasyGrader(BaseGrader):
         waste_ratio   = waste / (waste + rev + 1e-9)
 
         raw = revenue_ratio * (1.0 - waste_ratio)
-        return round(float(max(0.001, min(0.999, raw))), 4)
+        return safe_score(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +163,7 @@ class MediumGrader(BaseGrader):
             + 0.35 * waste_score
             + 0.25 * stockout_score
         )
-        return round(float(max(0.001, min(0.999, raw))), 4)
+        return safe_score(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +227,7 @@ class HardGrader(BaseGrader):
             + 0.20 * stockout_score
             + 0.15 * sustainability
         )
-        return round(float(max(0.001, min(0.999, raw))), 4)
+        return safe_score(raw)
 
 
 # ---------------------------------------------------------------------------
