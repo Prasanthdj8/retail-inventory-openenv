@@ -147,6 +147,8 @@ async def mcp(request: Request):
 @app.post("/reset")
 def reset(req: ResetRequest = ResetRequest()):
     task = req.task
+    task_map = {"easy_single_product":"easy","medium_multi_product":"medium","hard_full_store":"hard"}
+    task = task_map.get(task, task)
     if task not in ("easy", "medium", "hard"):
         raise HTTPException(status_code=400, detail=f"Unknown task: {task}. Choose easy/medium/hard.")
     seed = req.seed if req.seed is not None else DEFAULT_SEED
@@ -159,6 +161,8 @@ def reset(req: ResetRequest = ResetRequest()):
 @app.post("/step")
 def step(req: StepRequest):
     task = req.task
+    task_map = {"easy_single_product":"easy","medium_multi_product":"medium","hard_full_store":"hard"}
+    task = task_map.get(task, task)
     env  = _envs.get(task)
     if env is None:
         raise HTTPException(status_code=400,
