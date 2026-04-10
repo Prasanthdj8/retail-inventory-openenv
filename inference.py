@@ -108,12 +108,20 @@ class RetailEnvClient:
         return self._post("/reset", {"task": self.task, "seed": self.seed})
 
     def step(self, action: Dict) -> Dict:
+        try:
+            discount_pct = float(action.get("discount_pct") or 0.0)
+        except (TypeError, ValueError):
+            discount_pct = 0.0
+        try:
+            reorder_qty = int(float(action.get("reorder_qty") or 0))
+        except (TypeError, ValueError):
+            reorder_qty = 0
         payload = {
             "task"        : self.task,
-            "action_type" : action.get("action_type", "do_nothing"),
-            "product_id"  : action.get("product_id"),
-            "discount_pct": float(action.get("discount_pct", 0.0)),
-            "reorder_qty" : int(action.get("reorder_qty", 0)),
+            "action_type" : str(action.get("action_type") or "do_nothing"),
+            "product_id"  : action.get("product_id") or None,
+            "discount_pct": discount_pct,
+            "reorder_qty" : reorder_qty,
         }
         return self._post("/step", payload)
 
