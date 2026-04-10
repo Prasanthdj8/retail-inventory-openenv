@@ -39,8 +39,8 @@ from simulation import (
 # Safe clamping — strictly (0, 1), same bounds as inference.py
 # 1e-4 is far enough from the boundary that :.6f never rounds to 0.000000
 # ---------------------------------------------------------------------------
-_LO = 1e-4
-_HI = 1.0 - 1e-4
+_LO = 0.001
+_HI = 0.999
 
 
 def _safe(v: Any) -> float:

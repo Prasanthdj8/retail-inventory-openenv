@@ -47,7 +47,7 @@ app.add_middleware(
 def _safe_score(x):
     if x is None or (isinstance(x, float) and (math.isnan(x) or math.isinf(x))):
         return 0.5
-    return float(max(1e-6, min(1 - 1e-6, x)))
+    return float(max(0.001, min(0.999, x)))
 
 _envs: Dict[str, RetailInventoryEnv] = {}
 DEFAULT_SEED = int(os.getenv("ENV_SEED", "42"))

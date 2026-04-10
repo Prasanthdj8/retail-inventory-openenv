@@ -22,7 +22,7 @@ def safe_score(raw: float) -> float:
     """Return a score strictly in (0, 1), safe against NaN/inf."""
     if raw is None or math.isnan(raw) or math.isinf(raw):
         return 0.5
-    return float(max(1e-6, min(1 - 1e-6, raw)))
+    return float(max(0.001, min(0.999, raw)))
 
 # ---------------------------------------------------------------------------
 # Episode history record

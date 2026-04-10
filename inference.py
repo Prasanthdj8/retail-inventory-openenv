@@ -33,8 +33,8 @@ FALLBACK_ACTION = {"action_type": "do_nothing"}
 TASKS           = ["easy", "medium", "hard"]
 
 # Safe bounds — far enough from 0/1 that :.6f never rounds to the boundary
-_LO = 1e-4
-_HI = 1.0 - 1e-4
+_LO = 0.001
+_HI = 0.999
 
 
 def _safe(v: Any) -> float:
