@@ -35,6 +35,20 @@ from simulation import (
     resolve_day,
 )
 
+# ---------------------------------------------------------------------------
+# Safe clamping — strictly (0, 1), same bounds as inference.py
+# 1e-4 is far enough from the boundary that :.6f never rounds to 0.000000
+# ---------------------------------------------------------------------------
+_LO = 1e-4
+_HI = 1.0 - 1e-4
+
+
+def _safe(v: Any) -> float:
+    """Return a float strictly in (_LO, _HI), safe against None / NaN / inf."""
+    if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+        return 0.5
+    return float(max(_LO, min(_HI, float(v))))
+
 
 # ---------------------------------------------------------------------------
 # Task configurations
@@ -45,21 +59,21 @@ TASK_CONFIGS = {
         "num_products"   : 1,
         "episode_length" : 7,
         "initial_budget" : 50.0,
-        "start_month"    : 6,   # June — summer, good for testing
+        "start_month"    : 6,
         "description"    : "1 product · 7 days · minimise waste",
     },
     "medium": {
         "num_products"   : 5,
         "episode_length" : 30,
         "initial_budget" : 300.0,
-        "start_month"    : 11,  # November — pre-Christmas, interesting seasonality
+        "start_month"    : 11,
         "description"    : "5 products · 30 days · balance waste & stockouts",
     },
     "hard": {
         "num_products"   : 20,
         "episode_length" : 90,
         "initial_budget" : 2000.0,
-        "start_month"    : 10,  # October — spans Oct/Nov/Dec, full seasonal swing
+        "start_month"    : 10,
         "description"    : "20 products · 90 days · maximise profit + sustainability",
     },
 }
@@ -103,6 +117,10 @@ class RetailInventoryEnv:
         self._stockout_total: int   = 0
         self._history       : EpisodeHistory = EpisodeHistory()
         self._grader        = None
+
+    # ------------------------------------------------------------------
+    # OpenEnv interface
+    # ------------------------------------------------------------------
 
     def reset(self) -> Observation:
         self._rng = random.Random(self.seed)
@@ -187,19 +205,16 @@ class RetailInventoryEnv:
         self._day += 1
         self._done = self._day > self.config["episode_length"]
 
-        obs  = self._build_observation(daily_rev, daily_waste, stockouts, reward.total)
-        raw_running = self._grader.score(self._history) if self._grader else 0.5
-        if raw_running is None or math.isnan(raw_running) or math.isinf(raw_running):
-            raw_running = 0.5
-        running_score = float(max(1e-6, min(1 - 1e-6, raw_running)))
+        obs           = self._build_observation(daily_rev, daily_waste, stockouts, reward.total)
+        running_score = self.current_score()
 
-        info : Dict[str, Any] = {
+        info: Dict[str, Any] = {
             "day"          : self._day - 1,
             "done"         : self._done,
             "budget"       : self._budget,
             "cum_revenue"  : self._cum_revenue,
             "cum_waste"    : self._cum_waste,
-            "episode_score": running_score,
+            "episode_score": running_score,   # already safe via current_score()
             "task_id"      : self._grader.task_id if self._grader else self.task,
         }
 
@@ -222,7 +237,17 @@ class RetailInventoryEnv:
             "task_id"        : self._grader.task_id if self._grader else self.task,
         }
 
-    def _build_observation(self, daily_revenue, daily_waste, stockouts, reward_total=0.001) -> Observation:
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_observation(
+        self,
+        daily_revenue: float,
+        daily_waste: float,
+        stockouts: int,
+        reward_total: float = 0.5,
+    ) -> Observation:
         product_states = [
             p.to_product_state(
                 self._day,
@@ -230,7 +255,8 @@ class RetailInventoryEnv:
             )
             for p in self._products
         ]
-        clamped_reward = round(float(max(0.001, min(0.999, reward_total))), 4)
+        # reward embedded in observation must also be strictly (0, 1)
+        clamped_reward = round(_safe(reward_total), 6)
         return Observation(
             day                   = self._day,
             total_days            = self.config["episode_length"],
@@ -256,9 +282,8 @@ class RetailInventoryEnv:
         return self._grader.info() if self._grader else {}
 
     def current_score(self) -> float:
+        """Return the running episode score, always strictly in (_LO, _HI)."""
         if not self._grader or not self._history.records:
             return 0.5
-        score = self._grader.score(self._history)
-        if score is None or math.isnan(score) or math.isinf(score):
-            return 0.5
-        return float(max(1e-6, min(1 - 1e-6, score)))
+        raw = self._grader.score(self._history)
+        return _safe(raw)

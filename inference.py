@@ -1,16 +1,24 @@
 """
 inference.py - Baseline inference script for Retail Inventory & Expiry Management OpenEnv
+
+Score contract (enforced at every emission point):
+  - Every reward= in [STEP] lines: strictly (0, 1)
+  - score= in [END] line:          strictly (0, 1)
+  - Every value in rewards= list:  strictly (0, 1)
+
+_safe(v) is the single source of truth for clamping — uses 1e-4 / (1 - 1e-4)
+so that :.6f formatting never rounds to 0.000000 or 1.000000.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
-import sys
 import textwrap
 import time
 import urllib.request
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from openai import OpenAI
 
@@ -24,11 +32,21 @@ MAX_TOKENS      = 300
 FALLBACK_ACTION = {"action_type": "do_nothing"}
 TASKS           = ["easy", "medium", "hard"]
 
+# Safe bounds — far enough from 0/1 that :.6f never rounds to the boundary
+_LO = 1e-4
+_HI = 1.0 - 1e-4
 
-def clamp(score: float) -> float:
-    """Always return strictly between 0 and 1."""
-    return round(max(0.001, min(0.999, float(score))), 4)
 
+def _safe(v: Any) -> float:
+    """Return a float strictly in (_LO, _HI), safe against None / NaN / inf."""
+    if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+        return 0.5
+    return float(max(_LO, min(_HI, float(v))))
+
+
+# ---------------------------------------------------------------------------
+# Env HTTP client
+# ---------------------------------------------------------------------------
 
 class RetailEnvClient:
     def __init__(self, host: str, task: str, seed: int = 42):
@@ -56,6 +74,10 @@ class RetailEnvClient:
     def close(self):
         pass
 
+
+# ---------------------------------------------------------------------------
+# LLM prompting
+# ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = textwrap.dedent("""
 You are an expert retail store manager AI managing perishable inventory.
@@ -104,6 +126,8 @@ def build_user_prompt(obs: Dict, step: int) -> str:
 
 
 def call_llm(client, obs: Dict, step: int) -> Dict:
+    if client is None:
+        return FALLBACK_ACTION
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
@@ -136,12 +160,15 @@ def call_llm(client, obs: Dict, step: int) -> Dict:
         return FALLBACK_ACTION
 
 
+# ---------------------------------------------------------------------------
+# Episode runner
+# ---------------------------------------------------------------------------
+
 def run_episode(client, env: RetailEnvClient, task: str) -> float:
-    obs           = env.reset()
-    done          = False
-    step          = 0
-    episode_score = 0.001
-    rewards       = []
+    obs    = env.reset()
+    done   = False
+    step   = 0
+    rewards: List[float] = []
 
     print(f"[START] task={task} env=retail-inventory-expiry model={MODEL_NAME}", flush=True)
 
@@ -149,40 +176,48 @@ def run_episode(client, env: RetailEnvClient, task: str) -> float:
         step  += 1
         action = call_llm(client, obs, step)
         result = env.step(action)
+
         obs    = result["observation"]
         done   = result["done"]
         info   = result["info"]
         reward = result["reward"]
 
-        import math as _math
-        raw_r = reward["total"]
-        if raw_r is None or _math.isnan(raw_r) or _math.isinf(raw_r):
-            raw_r = 0.5
-        step_reward = float(max(0.01, min(0.99, raw_r))) if raw_r > 0 else 0.01
+        # Clamp the step reward — env can return large negatives/positives
+        step_reward = _safe(reward.get("total", 0.5))
         rewards.append(step_reward)
 
         print(
-            f"[STEP] step={step} action={action.get('action_type','do_nothing')} "
-            f"reward={step_reward:.3f} done={str(done).lower()} error=null",
+            f"[STEP] step={step} "
+            f"action={action.get('action_type', 'do_nothing')} "
+            f"reward={step_reward:.6f} "
+            f"done={str(done).lower()} "
+            f"error=null",
             flush=True,
         )
 
-        if done:
-            raw_score     = info.get("episode_score", 0.001)
-            episode_score = clamp(raw_score)
+    # Final episode score: prefer env's own graded episode_score,
+    # fall back to mean of step rewards.  Either way, strictly in (_LO, _HI).
+    env_score  = info.get("episode_score") if done else None
+    mean_score = sum(rewards) / len(rewards) if rewards else 0.5
+    raw_score  = env_score if (env_score is not None) else mean_score
+    episode_score = _safe(raw_score)
 
-    # Score from averaging rewards, clamped to strict (0,1)
-    raw_score     = sum(rewards) / len(rewards) if rewards else 0.0
-    episode_score = max(1e-6, min(raw_score, 1 - 1e-6))
-    success       = episode_score >= 0.1
-    rewards_str   = ",".join(f"{r:.3f}" for r in rewards)
+    success     = episode_score >= 0.1
+    rewards_str = ",".join(f"{r:.6f}" for r in rewards)
+
     print(
-        f"[END] success={str(success).lower()} steps={step} "
-        f"score={episode_score:.3f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} "
+        f"steps={step} "
+        f"score={episode_score:.6f} "
+        f"rewards={rewards_str}",
         flush=True,
     )
     return episode_score
 
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
     print("=" * 60, flush=True)
@@ -209,26 +244,40 @@ def main():
             scores[task] = run_episode(client, env, task)
         except Exception as exc:
             print(f"  ERROR on task '{task}': {exc}", flush=True)
-            print(f"[START] task={task} env=retail-inventory-expiry model={MODEL_NAME}", flush=True)
-            print(f"[STEP] step=1 action=do_nothing reward=0.001 done=true error=null", flush=True)
-            print(f"[END] success=false steps=1 score=0.001 rewards=0.001", flush=True)
-            scores[task] = 0.001
+            # Emit a valid minimal transcript so the validator sees well-formed output
+            fallback_score = _safe(0.001)
+            print(
+                f"[START] task={task} env=retail-inventory-expiry model={MODEL_NAME}",
+                flush=True,
+            )
+            print(
+                f"[STEP] step=1 action=do_nothing "
+                f"reward={fallback_score:.6f} done=true error=null",
+                flush=True,
+            )
+            print(
+                f"[END] success=false steps=1 "
+                f"score={fallback_score:.6f} "
+                f"rewards={fallback_score:.6f}",
+                flush=True,
+            )
+            scores[task] = fallback_score
         finally:
             env.close()
 
     elapsed = time.time() - start_time
-    avg     = clamp(sum(scores.values()) / max(len(scores), 1))
+    avg     = _safe(sum(scores.values()) / max(len(scores), 1))
 
     print("\n" + "=" * 60, flush=True)
     print("  BASELINE SCORES", flush=True)
     print("=" * 60, flush=True)
     for task, score in scores.items():
-        print(f"  {task:<8} : {score:.4f}", flush=True)
-    print(f"  {'average':<8} : {avg:.4f}", flush=True)
+        print(f"  {task:<8} : {score:.6f}", flush=True)
+    print(f"  {'average':<8} : {avg:.6f}", flush=True)
     print(f"  Elapsed  : {elapsed:.1f}s", flush=True)
     print("=" * 60, flush=True)
 
-    result = {"scores": scores, "average": avg, "elapsed_seconds": elapsed}
+    result = {"scores": scores, "average": float(avg), "elapsed_seconds": elapsed}
     print(f"\nJSON_SCORES: {json.dumps(result)}", flush=True)
 
 
