@@ -19,6 +19,7 @@ import math
 import os
 import textwrap
 import time
+import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
@@ -92,14 +93,29 @@ class RetailEnvClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            print(f"[DEBUG] HTTP {e.code} on {endpoint}: {body[:300]}", flush=True)
+            raise
+        except Exception as e:
+            print(f"[DEBUG] Request error on {endpoint}: {e}", flush=True)
+            raise
 
     def reset(self) -> Dict:
         return self._post("/reset", {"task": self.task, "seed": self.seed})
 
     def step(self, action: Dict) -> Dict:
-        return self._post("/step", {"task": self.task, **action})
+        payload = {
+            "task"        : self.task,
+            "action_type" : action.get("action_type", "do_nothing"),
+            "product_id"  : action.get("product_id"),
+            "discount_pct": float(action.get("discount_pct", 0.0)),
+            "reorder_qty" : int(action.get("reorder_qty", 0)),
+        }
+        return self._post("/step", payload)
 
     def close(self):
         pass
