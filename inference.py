@@ -1,13 +1,15 @@
 """
 inference.py - Baseline inference script for Retail Inventory & Expiry Management OpenEnv
 
-Score contract (enforced at every emission point):
-  - Every reward= in [STEP] lines: strictly (0, 1)
-  - score= in [END] line:          strictly (0, 1)
-  - Every value in rewards= list:  strictly (0, 1)
+STDOUT FORMAT (matches sample spec exactly):
+    [START] task=<task> env=<benchmark> model=<model>
+    [STEP]  step=<n> action=<action> reward=<0.00> done=<true|false> error=<msg|null>
+    [END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,r2,...>
 
-_safe(v) is the single source of truth for clamping — uses 1e-4 / (1 - 1e-4)
-so that :.6f formatting never rounds to 0.000000 or 1.000000.
+  - reward in [STEP]  : :.2f  (0.00 and 1.00 are valid per sample spec)
+  - score  in [END]   : :.3f
+  - rewards in [END]  : :.2f  comma-separated
+  - [END] always emitted in finally block even on exception
 """
 
 from __future__ import annotations
@@ -18,30 +20,58 @@ import os
 import textwrap
 import time
 import urllib.request
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-MODEL_NAME   = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-ENV_HOST     = os.getenv("ENV_HOST", "http://localhost:7860").rstrip("/")
-
-TEMPERATURE     = 0.0
-MAX_TOKENS      = 300
-FALLBACK_ACTION = {"action_type": "do_nothing"}
-TASKS           = ["easy", "medium", "hard"]
-
-# Safe bounds — far enough from 0/1 that :.6f never rounds to the boundary
-_LO = 0.001
-_HI = 0.999
+API_BASE_URL            = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+API_KEY                 = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+MODEL_NAME              = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
+ENV_HOST                = os.getenv("ENV_HOST", "http://localhost:7860").rstrip("/")
+TEMPERATURE             = 0.0
+MAX_TOKENS              = 300
+FALLBACK_ACTION         = {"action_type": "do_nothing"}
+TASKS                   = ["easy", "medium", "hard"]
+SUCCESS_SCORE_THRESHOLD = 0.1
 
 
-def _safe(v: Any) -> float:
-    """Return a float strictly in (_LO, _HI), safe against None / NaN / inf."""
+def _safe_score(v: Any) -> float:
+    """Clamp episode score to [0.001, 0.999] — grader contract."""
     if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
         return 0.5
-    return float(max(_LO, min(_HI, float(v))))
+    return float(max(0.001, min(0.999, float(v))))
+
+
+def _safe_reward(v: Any) -> float:
+    """Normalise raw RL reward to [0.0, 1.0] for [STEP] logging."""
+    if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+        return 0.0
+    return float(max(0.0, min(1.0, float(v))))
+
+
+# ---------------------------------------------------------------------------
+# Structured loggers — match sample format exactly
+# ---------------------------------------------------------------------------
+
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val  = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        flush=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +171,7 @@ def call_llm(client, obs: Dict, step: int) -> Dict:
         )
         text = (completion.choices[0].message.content or "").strip()
     except Exception as exc:
-        print(f"    [LLM error] {exc} - using fallback", flush=True)
+        print(f"[DEBUG] LLM error: {exc}", flush=True)
         return FALLBACK_ACTION
 
     if text.startswith("```"):
@@ -156,7 +186,7 @@ def call_llm(client, obs: Dict, step: int) -> Dict:
             raise ValueError("Missing action_type")
         return action
     except Exception as exc:
-        print(f"    [Parse error] {exc} - using fallback", flush=True)
+        print(f"[DEBUG] Parse error: {exc}", flush=True)
         return FALLBACK_ACTION
 
 
@@ -165,54 +195,57 @@ def call_llm(client, obs: Dict, step: int) -> Dict:
 # ---------------------------------------------------------------------------
 
 def run_episode(client, env: RetailEnvClient, task: str) -> float:
-    obs    = env.reset()
-    done   = False
-    step   = 0
-    rewards: List[float] = []
+    rewards:     List[float] = []
+    steps_taken: int         = 0
+    score:       float       = 0.5
+    success:     bool        = False
+    info:        Dict        = {}
 
-    print(f"[START] task={task} env=retail-inventory-expiry model={MODEL_NAME}", flush=True)
+    log_start(task=task, env="retail-inventory-expiry", model=MODEL_NAME)
 
-    while not done:
-        step  += 1
-        action = call_llm(client, obs, step)
-        result = env.step(action)
+    try:
+        obs  = env.reset()
+        done = False
 
-        obs    = result["observation"]
-        done   = result["done"]
-        info   = result["info"]
-        reward = result["reward"]
+        for step in range(1, 10000):
+            if done:
+                break
 
-        # Clamp the step reward — env can return large negatives/positives
-        step_reward = _safe(reward.get("total", 0.5))
-        rewards.append(step_reward)
+            action = call_llm(client, obs, step)
+            result = env.step(action)
 
-        print(
-            f"[STEP] step={step} "
-            f"action={action.get('action_type', 'do_nothing')} "
-            f"reward={step_reward:.6f} "
-            f"done={str(done).lower()} "
-            f"error=null",
-            flush=True,
-        )
+            obs    = result["observation"]
+            done   = result["done"]
+            info   = result["info"]
+            reward = result["reward"]
 
-    # Final episode score: prefer env's own graded episode_score,
-    # fall back to mean of step rewards.  Either way, strictly in (_LO, _HI).
-    env_score  = info.get("episode_score") if done else None
-    mean_score = sum(rewards) / len(rewards) if rewards else 0.5
-    raw_score  = env_score if (env_score is not None) else mean_score
-    episode_score = _safe(raw_score)
+            # Normalise raw RL reward to [0, 1] for [STEP] line
+            raw_r       = reward.get("total", 0.0)
+            step_reward = _safe_reward(raw_r)
+            rewards.append(step_reward)
+            steps_taken = step
 
-    success     = episode_score >= 0.1
-    rewards_str = ",".join(f"{r:.6f}" for r in rewards)
+            log_step(
+                step   = step,
+                action = action.get("action_type", "do_nothing"),
+                reward = step_reward,
+                done   = done,
+                error  = None,
+            )
 
-    print(
-        f"[END] success={str(success).lower()} "
-        f"steps={step} "
-        f"score={episode_score:.6f} "
-        f"rewards={rewards_str}",
-        flush=True,
-    )
-    return episode_score
+        # Use env's graded episode_score for [END] — already in [0.001, 0.999]
+        raw_score = info.get("episode_score", sum(rewards) / len(rewards) if rewards else 0.5)
+        score     = _safe_score(raw_score)
+        success   = score >= SUCCESS_SCORE_THRESHOLD
+
+    finally:
+        try:
+            env.close()
+        except Exception:
+            pass
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+
+    return score
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +264,7 @@ def main():
     try:
         client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     except Exception as exc:
-        print(f"WARNING: OpenAI client init failed: {exc}", flush=True)
+        print(f"[DEBUG] OpenAI client init failed: {exc}", flush=True)
         client = None
 
     scores     = {}
@@ -240,40 +273,17 @@ def main():
     for task in TASKS:
         print(f"\n[Task: {task.upper()}]", flush=True)
         env = RetailEnvClient(host=ENV_HOST, task=task, seed=42)
-        try:
-            scores[task] = run_episode(client, env, task)
-        except Exception as exc:
-            print(f"  ERROR on task '{task}': {exc}", flush=True)
-            # Emit a valid minimal transcript so the validator sees well-formed output
-            fallback_score = _safe(0.001)
-            print(
-                f"[START] task={task} env=retail-inventory-expiry model={MODEL_NAME}",
-                flush=True,
-            )
-            print(
-                f"[STEP] step=1 action=do_nothing "
-                f"reward={fallback_score:.6f} done=true error=null",
-                flush=True,
-            )
-            print(
-                f"[END] success=false steps=1 "
-                f"score={fallback_score:.6f} "
-                f"rewards={fallback_score:.6f}",
-                flush=True,
-            )
-            scores[task] = fallback_score
-        finally:
-            env.close()
+        scores[task] = run_episode(client, env, task)
 
     elapsed = time.time() - start_time
-    avg     = _safe(sum(scores.values()) / max(len(scores), 1))
+    avg     = _safe_score(sum(scores.values()) / max(len(scores), 1))
 
     print("\n" + "=" * 60, flush=True)
     print("  BASELINE SCORES", flush=True)
     print("=" * 60, flush=True)
-    for task, score in scores.items():
-        print(f"  {task:<8} : {score:.6f}", flush=True)
-    print(f"  {'average':<8} : {avg:.6f}", flush=True)
+    for task, s in scores.items():
+        print(f"  {task:<8} : {s:.3f}", flush=True)
+    print(f"  {'average':<8} : {avg:.3f}", flush=True)
     print(f"  Elapsed  : {elapsed:.1f}s", flush=True)
     print("=" * 60, flush=True)
 
